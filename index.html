@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>GraphGuard — Fraud Scoring & Explainability</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial; max-width: 1000px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 8px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin: 10px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .col { flex: 1 1 360px; }
+    input, button { padding: 10px 12px; border-radius: 8px; border: 1px solid #d1d5db; }
+    button { cursor: pointer; }
+    button:hover { background: #f3f4f6; }
+    pre { background: #0b1021; color: #8df; padding: 12px; border-radius: 8px; overflow: auto; }
+    img { max-width: 100%; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#eef2ff; color:#1f2937; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>GraphGuard — Fraud Scoring & Explainability</h1>
+  <p class="pill">Enter a <b>txId</b> from Elliptic to score and visualize its ego subgraph.</p>
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <label>txId</label><br/>
+        <input id="txid" placeholder="e.g. 230425980" style="width:100%"/>
+        <div style="margin-top:8px;">
+          <button id="btnScore">Score</button>
+          <button id="btnExplain">Explain (k=2)</button>
+        </div>
+      </div>
+      <div class="col">
+        <div><b>Top Features</b></div>
+        <table id="featTable"><thead><tr><th>Feature</th><th>Score</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col card">
+      <h3>Result</h3>
+      <div id="result"></div>
+    </div>
+    <div class="col card">
+      <h3>Ego Subgraph</h3>
+      <div id="graph"></div>
+    </div>
+  </div>
+
+  <script>
+    async function postJSON(url, data){
+      const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+      const js = await res.json();
+      if(!res.ok) throw new Error(js.detail || 'Error');
+      return js;
+    }
+    function setResult(js){
+      document.getElementById('result').innerHTML =
+        '<p><b>txId:</b> '+(js.txId??'(payload)')+'</p>'+
+        '<p><b>timeStep:</b> '+(js.timeStep??'')+'</p>'+
+        '<p><b>prob_illicit:</b> '+js.prob_illicit.toFixed(4)+'</p>'+
+        '<p><b>pred_label:</b> '+js.pred_label+' ('+(js.pred_label===1?'illicit':'licit')+')</p>'+
+        (js.true_label!==undefined? '<p><b>true_label:</b> '+js.true_label+'</p>':'')+
+        '<p><b>threshold:</b> '+js.threshold.toFixed(3)+'</p>';
+
+      // features
+      const tb = document.querySelector('#featTable tbody');
+      tb.innerHTML = '';
+      (js.top_features||[]).forEach(r=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>'+r.feature+'</td><td>'+r.score.toFixed(6)+'</td>';
+        tb.appendChild(tr);
+      });
+    }
+    async function score(){
+      const txid = document.getElementById('txid').value.trim();
+      if(!txid){ alert('Enter txId'); return; }
+      try{
+        const js = await postJSON('/score', {mode:'txid', txId: txid});
+        setResult(js);
+        document.getElementById('graph').innerHTML = '';
+      }catch(e){
+        document.getElementById('result').innerHTML = '<pre>'+e.toString()+'</pre>';
+      }
+    }
+    async function explain(){
+      const txid = document.getElementById('txid').value.trim();
+      if(!txid){ alert('Enter txId'); return; }
+      try{
+        const js = await postJSON('/explain', {txId: txid, k:2, max_nodes:150});
+        setResult(js);
+        if(js.subgraph_png_base64){
+          document.getElementById('graph').innerHTML = '<img src="data:image/png;base64,'+js.subgraph_png_base64+'"/>';
+        }else{
+          document.getElementById('graph').innerHTML = '<pre>'+JSON.stringify(js.subgraph, null, 2)+'</pre>';
+        }
+      }catch(e){
+        document.getElementById('graph').innerHTML = '<pre>'+e.toString()+'</pre>';
+      }
+    }
+    document.getElementById('btnScore').addEventListener('click', score);
+    document.getElementById('btnExplain').addEventListener('click', explain);
+  </script>
+</body>
+</html>
